@@ -1,0 +1,122 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Entity Validation: TelemetryEvent
+    function isValidTelemetryEvent(data) {
+      return data.keys().hasAll(['timestamp', 'source', 'type', 'message', 'operatorUid'])
+        && data.keys().hasOnly(['id', 'timestamp', 'source', 'type', 'message', 'entropy', 'attenuationDb', 'sealHash', 'operatorUid', 'operatorName'])
+        && data.timestamp is string && data.timestamp.size() <= 64
+        && data.source is string && data.source.size() <= 64
+        && data.type is string && data.type.size() <= 64
+        && data.message is string && data.message.size() <= 512
+        && data.operatorUid is string && data.operatorUid.size() <= 128
+        && (!('entropy' in data) || data.entropy is number)
+        && (!('attenuationDb' in data) || data.attenuationDb is number)
+        && (!('sealHash' in data) || (data.sealHash is string && data.sealHash.size() <= 128))
+        && (!('operatorName' in data) || (data.operatorName is string && data.operatorName.size() <= 128));
+    }
+
+    // Entity Validation: SystemState
+    function isValidSystemState(data) {
+      return data.keys().hasAll(['status', 'atomicRoot', 'metronomeHz', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'status', 'atomicRoot', 'metronomeHz', 'freeSpaceZ0', 'entropyH', 'atrmDb', 'manifoldM', 'collateralParity', 'powSieveOps', 'updatedAt', 'lastOperatorUid'])
+        && data.status is string && data.status.size() <= 64
+        && data.atomicRoot is string && data.atomicRoot.size() <= 128
+        && data.metronomeHz is number
+        && data.updatedAt is string && data.updatedAt.size() <= 64
+        && (!('freeSpaceZ0' in data) || data.freeSpaceZ0 is number)
+        && (!('entropyH' in data) || data.entropyH is number)
+        && (!('atrmDb' in data) || data.atrmDb is number)
+        && (!('manifoldM' in data) || data.manifoldM is number)
+        && (!('collateralParity' in data) || (data.collateralParity is string && data.collateralParity.size() <= 64))
+        && (!('powSieveOps' in data) || data.powSieveOps is number)
+        && (!('lastOperatorUid' in data) || (data.lastOperatorUid is string && data.lastOperatorUid.size() <= 128));
+    }
+
+    // Entity Validation: LobeConfig
+    function isValidLobeConfig(data) {
+      return data.keys().hasAll(['lobeIndex', 'name', 'tag', 'status'])
+        && data.keys().hasOnly(['id', 'lobeIndex', 'name', 'tag', 'status', 'notes', 'targetFreq', 'updatedAt', 'operatorUid'])
+        && data.lobeIndex is number && data.lobeIndex >= 0 && data.lobeIndex <= 7
+        && data.name is string && data.name.size() <= 128
+        && data.tag is string && data.tag.size() <= 64
+        && data.status is string && data.status.size() <= 32
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
+        && (!('targetFreq' in data) || data.targetFreq is number)
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64))
+        && (!('operatorUid' in data) || (data.operatorUid is string && data.operatorUid.size() <= 128));
+    }
+
+    // Collection: /telemetry_events/{eventId} (Forensic Immutable Append-Only Ledger)
+    match /telemetry_events/{eventId} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if isSignedIn()
+        && isValidId(eventId)
+        && isValidTelemetryEvent(incoming())
+        && incoming().operatorUid == request.auth.uid;
+      allow update: if false; // strictly immutable for fiduciary audit trail
+      allow delete: if false; // zero deletions permitted
+    }
+
+    // Collection: /system_state/{stateId}
+    match /system_state/{stateId} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if isSignedIn()
+        && isValidId(stateId)
+        && isValidSystemState(incoming());
+      allow update: if isSignedIn()
+        && isValidId(stateId)
+        && isValidSystemState(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'status', 'atomicRoot', 'metronomeHz', 'freeSpaceZ0', 'entropyH', 'atrmDb', 'manifoldM', 'collateralParity', 'powSieveOps', 'updatedAt', 'lastOperatorUid'
+        ]);
+      allow delete: if false;
+    }
+
+    // Collection: /lobe_configs/{lobeId}
+    match /lobe_configs/{lobeId} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if isSignedIn()
+        && isValidId(lobeId)
+        && isValidLobeConfig(incoming());
+      allow update: if isSignedIn()
+        && isValidId(lobeId)
+        && isValidLobeConfig(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'status', 'notes', 'targetFreq', 'updatedAt', 'operatorUid'
+        ]);
+      allow delete: if false;
+    }
+
+    // Connection test probe
+    match /test/{docId} {
+      allow get: if true;
+    }
+  }
+}
