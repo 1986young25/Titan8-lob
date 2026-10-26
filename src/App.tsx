@@ -29,7 +29,10 @@ import { TelemetryPanel } from './components/TelemetryPanel';
 import { TacticalOverridesPanel } from './components/TacticalOverridesPanel';
 import { TerminalLogStream } from './components/TerminalLogStream';
 import { WorkspaceArchiveModal } from './components/WorkspaceArchiveModal';
+import { CommercialMatrixModal } from './components/CommercialMatrixModal';
 import { audioEngine } from './utils/audioMetronome';
+import { voiceEngine } from './utils/speechSynthesis';
+import { evaluateShannonEntropyGate } from './utils/shannonEntropy';
 import { Eye } from 'lucide-react';
 
 export default function App() {
@@ -39,6 +42,7 @@ export default function App() {
   const [systemState, setSystemState] = useState<SystemState>(INITIAL_SYSTEM_STATE);
   const [logs, setLogs] = useState<TelemetryEvent[]>([]);
   const [isMuted, setIsMuted] = useState<boolean>(true);
+  const [isVoiceEnabled, setIsVoiceEnabled] = useState<boolean>(true);
   const [isZenMode, setIsZenMode] = useState<boolean>(false);
   const [tickCounter, setTickCounter] = useState<number>(0);
   const [pulseTrigger, setPulseTrigger] = useState<number>(0);
@@ -46,6 +50,7 @@ export default function App() {
   const [isSavingNotes, setIsSavingNotes] = useState<boolean>(false);
   const [isFirestoreConnected, setIsFirestoreConnected] = useState<boolean>(false);
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState<boolean>(false);
+  const [isCommercialModalOpen, setIsCommercialModalOpen] = useState<boolean>(false);
 
   // Initial Boot Logs
   useEffect(() => {
@@ -204,6 +209,10 @@ export default function App() {
     [user]
   );
 
+  const handleAnomalyDetected = useCallback((msg: string) => {
+    logTerminal('JITTER_SIEVE', 'TICK', msg);
+  }, [logTerminal]);
+
   // 3.69 Hz Tesla Pulse Metronome Timer Loop (~271 ms interval)
   useEffect(() => {
     const intervalMs = Math.round(1000 / (systemState.metronomeHz || 3.69));
@@ -273,6 +282,18 @@ export default function App() {
   };
 
   // Tactical Overrides
+  const handleForceResync = () => {
+    setPulseTrigger((prev) => prev + 1);
+    setTickCounter(0);
+    audioEngine.playHarmonicPulse();
+    voiceEngine.speak("Phase resync complete. Tesla metronome and grid frequency locked.");
+    logTerminal(
+      'PHASE_RESYNC',
+      'PULSE',
+      '--> [RESYNC] 3.69 Hz Tesla Metronome bi-matched with 60.00 Hz Utility Grid. Phase Offset: 0.00°, Δt: 0.00 µs.'
+    );
+  };
+
   const triggerHarmonicPulse = () => {
     setPulseTrigger((prev) => prev + 1);
     audioEngine.playHarmonicPulse();
@@ -346,6 +367,10 @@ export default function App() {
     audioEngine.playTripwire();
     setTripwireTrigger((prev) => prev + 1);
 
+    // Evaluate malicious low-entropy buffer through Shannon Entropy Gate (triggers Web Speech audible rejection)
+    const exploitBuffer = '0x90'.repeat(32);
+    const gateResult = evaluateShannonEntropyGate(exploitBuffer, 1.5000, true);
+
     // Trip Lobe 0
     setLobes((prev) =>
       prev.map((l, idx) =>
@@ -354,9 +379,9 @@ export default function App() {
     );
 
     logTerminal(
+      'SHANNON_SIEVE',
       'TRIPWIRE',
-      'TRIPWIRE',
-      '--> [TRIPWIRE ALERT] Modulo-9 Circuit Breaker Tripped! Inverting bad payload bytes...'
+      `--> [GATE ALERT] Low-entropy payload rejected (H=${gateResult.entropyH}). ${gateResult.action}. Audible alert broadcast.`
     );
 
     // Automated Autonomous Bitwise NOT Healing Loop after 1.2s
@@ -454,11 +479,14 @@ export default function App() {
               metronomeHz={systemState.metronomeHz}
               isMuted={isMuted}
               onToggleMute={handleToggleMute}
+              isVoiceEnabled={isVoiceEnabled}
+              onToggleVoice={() => setIsVoiceEnabled(voiceEngine.toggle())}
               isZenMode={isZenMode}
               onToggleZenMode={() => setIsZenMode(!isZenMode)}
               tickCounter={tickCounter}
               isFirestoreConnected={isFirestoreConnected}
               onOpenWorkspace={() => setIsWorkspaceModalOpen(true)}
+              onOpenCommercialMatrix={() => setIsCommercialModalOpen(true)}
             />
           </div>
 
@@ -475,6 +503,9 @@ export default function App() {
                   logTerminal('COMMAND', 'BOOT', `Inspected Focus switched to: ${lobes[idx].tag}`);
                 }}
                 onUpdateMetronomeHz={handleUpdateMetronomeHz}
+                tickCounter={tickCounter}
+                onAnomalyDetected={handleAnomalyDetected}
+                onForceResync={handleForceResync}
               />
             </div>
 
@@ -492,9 +523,11 @@ export default function App() {
                 onAtrmNullification={runAtrmNullification}
                 onCommitFiduciarySeal={commitFiduciarySeal}
                 onTriggerEmergencyTripwire={triggerEmergencyTripwire}
+                onForceResync={handleForceResync}
                 isSavingNotes={isSavingNotes}
                 hasUnsavedNotes={false}
                 isFirestoreConnected={isFirestoreConnected}
+                onLogTerminal={logTerminal}
               />
             </div>
           </div>
@@ -516,6 +549,13 @@ export default function App() {
         systemState={systemState}
         logs={logs}
         lobes={lobes}
+        onLogTerminal={logTerminal}
+      />
+
+      {/* Commercial Services & Pricing Matrix Modal */}
+      <CommercialMatrixModal
+        isOpen={isCommercialModalOpen}
+        onClose={() => setIsCommercialModalOpen(false)}
         onLogTerminal={logTerminal}
       />
     </div>

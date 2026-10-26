@@ -8,6 +8,10 @@ export interface OctaLobe {
   status: 'ONLINE' | 'THROTTLED' | 'ATTENUATING' | 'CIRCUIT_TRIPPED' | 'STANDBY';
   subroutine: string;
   notes?: string;
+  pos: [number, number, number];
+  scale: number;
+  colorHex: number;
+  vehicle?: string;
 }
 
 export interface TelemetryEvent {

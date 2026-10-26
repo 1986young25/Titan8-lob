@@ -13,6 +13,7 @@ interface ThreeBrainCanvasProps {
 }
 
 export const ThreeBrainCanvas: React.FC<ThreeBrainCanvasProps> = ({
+  lobes,
   selectedLobeIdx,
   onSelectLobe,
   metronomeHz,
@@ -22,31 +23,39 @@ export const ThreeBrainCanvas: React.FC<ThreeBrainCanvasProps> = ({
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const centralMatRef = useRef<THREE.MeshBasicMaterial | null>(null);
-  const centralCoreRef = useRef<THREE.Mesh | null>(null);
+  const centralWireMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  const centralDiamondRef = useRef<THREE.Mesh | null>(null);
+  const centralGroupRef = useRef<THREE.Group | null>(null);
   const coreLightRef = useRef<THREE.PointLight | null>(null);
+
   const lobeMeshesRef = useRef<Array<{
     group: THREE.Group;
-    outer: THREE.Mesh;
-    inner: THREE.Mesh;
+    outerMesh: THREE.Mesh;
+    innerMesh: THREE.Mesh;
     outerMat: THREE.MeshStandardMaterial;
     innerMat: THREE.MeshStandardMaterial;
+    laserLine: THREE.Line;
+    basePos: THREE.Vector3;
+    baseScale: number;
+    colorHex: number;
   }>>([]);
+
   const onSelectRef = useRef(onSelectLobe);
   onSelectRef.current = onSelectLobe;
 
   // React to Pulse Trigger
   useEffect(() => {
     if (pulseTrigger === 0) return;
-    if (centralMatRef.current && coreLightRef.current && centralCoreRef.current) {
-      centralMatRef.current.color.setHex(0xffd700);
+    if (centralWireMatRef.current && coreLightRef.current && centralDiamondRef.current) {
+      centralWireMatRef.current.color.setHex(0xffffff);
       coreLightRef.current.intensity = 5.5;
-      centralCoreRef.current.scale.set(1.4, 1.4, 1.4);
+      centralDiamondRef.current.scale.set(1.5, 1.5, 1.5);
 
       const timer = setTimeout(() => {
-        if (centralMatRef.current && coreLightRef.current) {
-          centralMatRef.current.color.setHex(0x00e5ff);
-          coreLightRef.current.intensity = 2.2;
+        if (centralWireMatRef.current && coreLightRef.current && centralDiamondRef.current) {
+          centralWireMatRef.current.color.setHex(0xf59e0b);
+          coreLightRef.current.intensity = 2.4;
+          centralDiamondRef.current.scale.set(1.0, 1.0, 1.0);
         }
       }, 350);
       return () => clearTimeout(timer);
@@ -57,25 +66,32 @@ export const ThreeBrainCanvas: React.FC<ThreeBrainCanvasProps> = ({
   useEffect(() => {
     if (tripwireTrigger === 0) return;
     const lobe0 = lobeMeshesRef.current[0];
-    if (lobe0) {
-      lobe0.innerMat.color.setHex(0xff1744);
-      lobe0.innerMat.emissive.setHex(0xff1744);
-      lobe0.outerMat.color.setHex(0xff1744);
+    const lobe4 = lobeMeshesRef.current[4]; // AMRA Vanguard
+    [lobe0, lobe4].forEach((item) => {
+      if (item) {
+        item.outerMat.color.setHex(0xff1744);
+        item.innerMat.color.setHex(0xff1744);
+        item.innerMat.emissive.setHex(0xff1744);
+      }
+    });
 
-      const timer = setTimeout(() => {
-        lobe0.innerMat.color.setHex(0x00ff7f);
-        lobe0.innerMat.emissive.setHex(0x00ff7f);
-        lobe0.outerMat.color.setHex(0x00e5ff);
-      }, 1400);
-      return () => clearTimeout(timer);
-    }
+    const timer = setTimeout(() => {
+      [lobe0, lobe4].forEach((item) => {
+        if (item) {
+          item.outerMat.color.setHex(item.colorHex);
+          item.innerMat.color.setHex(item.colorHex);
+          item.innerMat.emissive.setHex(item.colorHex);
+        }
+      });
+    }, 1400);
+    return () => clearTimeout(timer);
   }, [tripwireTrigger]);
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
 
-    // Detect Software WebGL
+    // Detect Software WebGL fallback
     const isSoftwareGl = (() => {
       const gl = document.createElement('canvas').getContext('webgl2');
       if (!gl) return true;
@@ -88,10 +104,10 @@ export const ThreeBrainCanvas: React.FC<ThreeBrainCanvasProps> = ({
 
     const scene = new THREE.Scene();
     sceneRef.current = scene;
-    scene.fog = new THREE.FogExp2(0x050811, 0.032);
+    scene.fog = new THREE.FogExp2(0x030712, 0.028);
 
-    const camera = new THREE.PerspectiveCamera(60, mount.clientWidth / mount.clientHeight, 0.1, 1000);
-    camera.position.set(0, 4.5, 13.5);
+    const camera = new THREE.PerspectiveCamera(58, mount.clientWidth / mount.clientHeight, 0.1, 1000);
+    camera.position.set(0, 5, 14.5);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: !isSoftwareGl,
@@ -103,168 +119,233 @@ export const ThreeBrainCanvas: React.FC<ThreeBrainCanvasProps> = ({
     renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.2;
     mount.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.maxDistance = 28;
-    controls.minDistance = 3.5;
+    controls.maxDistance = 30;
+    controls.minDistance = 3.2;
     controls.autoRotate = false;
 
     // Ambient & Tactical Lights
-    const ambientLight = new THREE.AmbientLight(0x00e5ff, 0.45);
+    const ambientLight = new THREE.AmbientLight(0x06b6d4, 0.5);
     scene.add(ambientLight);
 
-    const hemisphereLight = new THREE.HemisphereLight(0x00e5ff, 0x050811, 0.6);
-    scene.add(hemisphereLight);
+    const hemiLight = new THREE.HemisphereLight(0x06b6d4, 0x030712, 0.7);
+    scene.add(hemiLight);
 
-    const coreLight = new THREE.PointLight(0x00e5ff, 2.2, 28);
+    const coreLight = new THREE.PointLight(0xf59e0b, 2.4, 28);
     coreLight.position.set(0, 0, 0);
     scene.add(coreLight);
     coreLightRef.current = coreLight;
 
-    const goldLight = new THREE.PointLight(0xffd700, 1.8, 22);
-    goldLight.position.set(0, 7, 0);
-    scene.add(goldLight);
+    const topCyanLight = new THREE.PointLight(0x06b6d4, 1.8, 24);
+    topCyanLight.position.set(0, 8, 0);
+    scene.add(topCyanLight);
 
-    // Brain Group Assembly
+    // Main Brain Group (lobes + central core + connections)
     const brainGroup = new THREE.Group();
     scene.add(brainGroup);
 
-    // Central Wireframe Tesseract (Inner Core)
-    const centralGeo = new THREE.IcosahedronGeometry(1.5, 1);
-    const centralMat = new THREE.MeshBasicMaterial({
-      color: 0x00e5ff,
-      wireframe: true,
-      transparent: true,
-      opacity: 0.85,
-    });
-    centralMatRef.current = centralMat;
-    const centralCore = new THREE.Mesh(centralGeo, centralMat);
-    centralCoreRef.current = centralCore;
-    brainGroup.add(centralCore);
+    // 4D Gaussian Splatting Cloud (1,024 points, rotating counter to brain group)
+    const splatGroup = new THREE.Group();
+    scene.add(splatGroup);
 
-    // Nested Inner Solid Harmonic Core (Octahedron mesh)
-    const innerSolidGeo = new THREE.OctahedronGeometry(0.75, 0);
-    const innerSolidMat = new THREE.MeshStandardMaterial({
-      color: 0xffd700,
-      emissive: 0xff9900,
-      emissiveIntensity: 0.65,
-      roughness: 0.25,
-      metalness: 0.85,
-    });
-    const innerCoreMesh = new THREE.Mesh(innerSolidGeo, innerSolidMat);
-    brainGroup.add(innerCoreMesh);
+    const splatCount = 1024;
+    const splatPositions = new Float32Array(splatCount * 3);
+    const splatColors = new Float32Array(splatCount * 3);
 
-    // 8 Symmetrical Lobes using Golden Ratio Fibonacci Sphere
-    const lobeMeshes: Array<{
-      group: THREE.Group;
-      outer: THREE.Mesh;
-      inner: THREE.Mesh;
-      outerMat: THREE.MeshStandardMaterial;
-      innerMat: THREE.MeshStandardMaterial;
-    }> = [];
-    const phi = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < splatCount; i++) {
+      // Spherical distribution with radius between 3.2 and 8.5
+      const u = Math.random();
+      const v = Math.random();
+      const theta = u * 2.0 * Math.PI;
+      const phi = Math.acos(2.0 * v - 1.0);
+      const r = 3.2 + Math.pow(Math.random(), 0.8) * 5.3;
 
-    for (let i = 0; i < 8; i++) {
-      const y = 1 - (i / 7) * 2;
-      const radiusAtY = Math.sqrt(1 - y * y);
-      const theta = phi * i;
+      const sinPhi = Math.sin(phi);
+      const x = r * sinPhi * Math.cos(theta);
+      const y = r * sinPhi * Math.sin(theta);
+      const z = r * Math.cos(phi);
 
-      const orbitRadius = 4.4;
-      const x = Math.cos(theta) * radiusAtY * orbitRadius;
-      const z = Math.sin(theta) * radiusAtY * orbitRadius;
-      const posY = y * (orbitRadius * 0.7);
+      splatPositions[i * 3] = x;
+      splatPositions[i * 3 + 1] = y;
+      splatPositions[i * 3 + 2] = z;
 
-      const lobeGroup = new THREE.Group();
-      lobeGroup.position.set(x, posY, z);
-      lobeGroup.userData = { lobeIndex: i };
-
-      // Outer Dodecahedron wireframe
-      const lobeOuterGeo = new THREE.DodecahedronGeometry(0.85, 0);
-      const lobeOuterMat = new THREE.MeshStandardMaterial({
-        color: 0x00e5ff,
-        emissive: 0x003344,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.65,
-      });
-      const outerMesh = new THREE.Mesh(lobeOuterGeo, lobeOuterMat);
-      outerMesh.userData = { lobeIndex: i };
-      lobeGroup.add(outerMesh);
-
-      // Inner glowing nucleus
-      const lobeInnerGeo = new THREE.SphereGeometry(0.32, 16, 16);
-      const lobeInnerMat = new THREE.MeshStandardMaterial({
-        color: 0x00ff7f,
-        emissive: 0x00ff7f,
-        emissiveIntensity: 0.85,
-        roughness: 0.3,
-      });
-      const innerMesh = new THREE.Mesh(lobeInnerGeo, lobeInnerMat);
-      innerMesh.userData = { lobeIndex: i };
-      lobeGroup.add(innerMesh);
-
-      brainGroup.add(lobeGroup);
-      lobeMeshes.push({
-        group: lobeGroup,
-        outer: outerMesh,
-        inner: innerMesh,
-        outerMat: lobeOuterMat,
-        innerMat: lobeInnerMat,
-      });
-
-      // Synaptic Laser Line to Center
-      const lineMat = new THREE.LineBasicMaterial({
-        color: 0x00e5ff,
-        transparent: true,
-        opacity: 0.38,
-      });
-      const lineGeo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, 0, 0),
-        new THREE.Vector3(x, posY, z),
-      ]);
-      const synLine = new THREE.Line(lineGeo, lineMat);
-      brainGroup.add(synLine);
+      // Color variation based on radial distance and coordinate angle
+      const c = new THREE.Color();
+      if (r < 4.5) {
+        c.setHex(0xf59e0b); // Amber Core
+      } else if (r < 6.5) {
+        c.setHex(0x06b6d4); // Cyan Field
+      } else {
+        c.setHex(0x10b981); // Emerald Boundary
+      }
+      splatColors[i * 3] = c.r;
+      splatColors[i * 3 + 1] = c.g;
+      splatColors[i * 3 + 2] = c.b;
     }
-    lobeMeshesRef.current = lobeMeshes;
 
-    // Concentric Orbital Resonance Rings (3.69 Hz Guidance)
-    const ringRadii = [5.4, 6.8, 8.2];
+    const splatGeo = new THREE.BufferGeometry();
+    splatGeo.setAttribute('position', new THREE.BufferAttribute(splatPositions, 3));
+    splatGeo.setAttribute('color', new THREE.BufferAttribute(splatColors, 3));
+
+    const splatMat = new THREE.PointsMaterial({
+      size: 0.12,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.65,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const splatPoints = new THREE.Points(splatGeo, splatMat);
+    splatGroup.add(splatPoints);
+
+    // Concentric Harmonic Resonance Rings (3.69 Hz Guidance)
+    const ringRadii = [5.0, 6.8, 8.6];
     ringRadii.forEach((radius, i) => {
-      const ringGeo = new THREE.RingGeometry(radius, radius + 0.035, 64);
+      const ringGeo = new THREE.RingGeometry(radius, radius + 0.04, 64);
       const ringMat = new THREE.MeshBasicMaterial({
-        color: i === 1 ? 0xffd700 : 0x00e5ff,
+        color: i === 0 ? 0xf59e0b : 0x06b6d4,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.22 - i * 0.04,
+        opacity: 0.24 - i * 0.05,
       });
       const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-      ringMesh.rotation.x = Math.PI / 2 + i * 0.25;
-      ringMesh.rotation.y = i * 0.35;
+      ringMesh.rotation.x = Math.PI / 2 + i * 0.22;
+      ringMesh.rotation.y = i * 0.38;
       brainGroup.add(ringMesh);
     });
 
-    // Ambient Swarm Particle Field
-    const particleCount = 650;
-    const particleGeo = new THREE.BufferGeometry();
-    const pCoords = new Float32Array(particleCount * 3);
-    for (let i = 0; i < particleCount * 3; i += 3) {
-      pCoords[i] = (Math.random() - 0.5) * 32;
-      pCoords[i + 1] = (Math.random() - 0.5) * 22;
-      pCoords[i + 2] = (Math.random() - 0.5) * 32;
-    }
-    particleGeo.setAttribute('position', new THREE.BufferAttribute(pCoords, 3));
-    const particleMat = new THREE.PointsMaterial({
-      color: 0x00e5ff,
-      size: 0.08,
+    // Central Core Group (Lobe 0: AURA)
+    const centralGroup = new THREE.Group();
+    centralGroup.position.set(0, 0, 0);
+    centralGroup.userData = { lobeIndex: 0 };
+    brainGroup.add(centralGroup);
+    centralGroupRef.current = centralGroup;
+
+    // Lobe 0 Outer: Icosahedron Wireframe (scale: 1.8, color: 0xf59e0b)
+    const centralWireGeo = new THREE.IcosahedronGeometry(1.8, 1);
+    const centralWireMat = new THREE.MeshStandardMaterial({
+      color: 0xf59e0b,
+      emissive: 0x8a5300,
+      emissiveIntensity: 0.4,
+      wireframe: true,
       transparent: true,
-      opacity: 0.45,
+      opacity: 0.88,
     });
-    const particles = new THREE.Points(particleGeo, particleMat);
-    scene.add(particles);
+    centralWireMatRef.current = centralWireMat;
+    const centralWireMesh = new THREE.Mesh(centralWireGeo, centralWireMat);
+    centralWireMesh.userData = { lobeIndex: 0 };
+    centralGroup.add(centralWireMesh);
+
+    // Lobe 0 Inner: Diamond Octahedron Core (color: 0xff4500)
+    const diamondGeo = new THREE.OctahedronGeometry(0.85, 0);
+    const diamondMat = new THREE.MeshStandardMaterial({
+      color: 0xff4500,
+      emissive: 0xff4500,
+      emissiveIntensity: 0.8,
+      roughness: 0.2,
+      metalness: 0.9,
+    });
+    const diamondMesh = new THREE.Mesh(diamondGeo, diamondMat);
+    diamondMesh.userData = { lobeIndex: 0 };
+    centralGroup.add(diamondMesh);
+    centralDiamondRef.current = diamondMesh;
+
+    // Initialize Lobes 0..7 References & Satellites (1..7)
+    const lobeMeshes: Array<{
+      group: THREE.Group;
+      outerMesh: THREE.Mesh;
+      innerMesh: THREE.Mesh;
+      outerMat: THREE.MeshStandardMaterial;
+      innerMat: THREE.MeshStandardMaterial;
+      laserLine: THREE.Line;
+      basePos: THREE.Vector3;
+      baseScale: number;
+      colorHex: number;
+    }> = [];
+
+    // Register Lobe 0
+    const zeroDummyLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial());
+    lobeMeshes.push({
+      group: centralGroup,
+      outerMesh: centralWireMesh,
+      innerMesh: diamondMesh,
+      outerMat: centralWireMat,
+      innerMat: diamondMat,
+      laserLine: zeroDummyLine,
+      basePos: new THREE.Vector3(0, 0, 0),
+      baseScale: 1.8,
+      colorHex: 0xf59e0b,
+    });
+
+    // Build Satellites 1..7 at their precise spatial coordinates
+    lobes.forEach((lobe, idx) => {
+      if (idx === 0) return; // Central core handled above
+
+      const [px, py, pz] = lobe.pos || [0, 0, 0];
+      const satGroup = new THREE.Group();
+      satGroup.position.set(px, py, pz);
+      satGroup.userData = { lobeIndex: idx };
+
+      // Outer Wireframe Octahedron
+      const outerGeo = new THREE.OctahedronGeometry((lobe.scale || 1.0) * 0.82, 1);
+      const outerMat = new THREE.MeshStandardMaterial({
+        color: lobe.colorHex || 0x06b6d4,
+        emissive: lobe.colorHex || 0x06b6d4,
+        emissiveIntensity: 0.35,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.8,
+      });
+      const outerMesh = new THREE.Mesh(outerGeo, outerMat);
+      outerMesh.userData = { lobeIndex: idx };
+      satGroup.add(outerMesh);
+
+      // Inner Glowing Nucleus Sphere
+      const innerGeo = new THREE.SphereGeometry((lobe.scale || 1.0) * 0.3, 16, 16);
+      const innerMat = new THREE.MeshStandardMaterial({
+        color: lobe.colorHex || 0x06b6d4,
+        emissive: lobe.colorHex || 0x06b6d4,
+        emissiveIntensity: 0.9,
+        roughness: 0.25,
+      });
+      const innerMesh = new THREE.Mesh(innerGeo, innerMat);
+      innerMesh.userData = { lobeIndex: idx };
+      satGroup.add(innerMesh);
+
+      brainGroup.add(satGroup);
+
+      // Laser Synaptic Vector Line to [0, 0, 0]
+      const lineMat = new THREE.LineBasicMaterial({
+        color: lobe.colorHex || 0x06b6d4,
+        transparent: true,
+        opacity: 0.45,
+      });
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(px, py, pz),
+      ]);
+      const laserLine = new THREE.Line(lineGeo, lineMat);
+      brainGroup.add(laserLine);
+
+      lobeMeshes.push({
+        group: satGroup,
+        outerMesh,
+        innerMesh,
+        outerMat,
+        innerMat,
+        laserLine,
+        basePos: new THREE.Vector3(px, py, pz),
+        baseScale: lobe.scale || 1.0,
+        colorHex: lobe.colorHex || 0x06b6d4,
+      });
+    });
+
+    lobeMeshesRef.current = lobeMeshes;
 
     // Raycasting for interactive 3D Lobe selection
     const raycaster = new THREE.Raycaster();
@@ -277,10 +358,11 @@ export const ThreeBrainCanvas: React.FC<ThreeBrainCanvasProps> = ({
 
       raycaster.setFromCamera(mouse, camera);
       const targets: THREE.Object3D[] = [];
-      lobeMeshes.forEach(l => {
-        targets.push(l.outer);
-        targets.push(l.inner);
+      lobeMeshes.forEach((item) => {
+        targets.push(item.outerMesh);
+        targets.push(item.innerMesh);
       });
+
       const intersects = raycaster.intersectObjects(targets, false);
       if (intersects.length > 0) {
         const hit = intersects[0].object;
@@ -304,30 +386,55 @@ export const ThreeBrainCanvas: React.FC<ThreeBrainCanvasProps> = ({
 
       // Brain Group Continuous Gyro Rotation
       brainGroup.rotation.y = elapsedTime * 0.12;
-      brainGroup.rotation.x = Math.sin(elapsedTime * 0.18) * 0.07;
-      centralCore.rotation.x = -elapsedTime * 0.35;
-      centralCore.rotation.y = elapsedTime * 0.45;
-      innerCoreMesh.rotation.y = -elapsedTime * 0.55;
+      brainGroup.rotation.x = Math.sin(elapsedTime * 0.16) * 0.06;
+
+      // 4D Gaussian Splatting Cloud Counter-Rotation
+      splatGroup.rotation.y = -elapsedTime * 0.08;
+      splatGroup.rotation.x = Math.cos(elapsedTime * 0.1) * 0.04;
+
+      // Central diamond rotation
+      if (centralDiamondRef.current) {
+        centralDiamondRef.current.rotation.x = -elapsedTime * 0.45;
+        centralDiamondRef.current.rotation.y = elapsedTime * 0.55;
+      }
 
       // 3.69 Hz Tesla Breathing Cadence
       const pulseRate = metronomeHz || 3.69;
-      const pulse = 1.0 + 0.07 * Math.sin(elapsedTime * pulseRate * Math.PI * 2);
-      centralCore.scale.set(pulse, pulse, pulse);
+      const breathing = 1.0 + 0.06 * Math.sin(elapsedTime * pulseRate * Math.PI * 2);
+      if (centralGroupRef.current) {
+        centralGroupRef.current.scale.set(breathing, breathing, breathing);
+      }
 
-      // Orbit Lobes Rotation & Selected Visual Focus
+      // Satellite animation & selected highlight
       lobeMeshes.forEach((item, idx) => {
-        item.outer.rotation.y += 0.015;
-        item.outer.rotation.x += 0.008;
+        item.outerMesh.rotation.y += 0.016;
+        item.outerMesh.rotation.x += 0.009;
 
         const isSelected = idx === selectedLobeIdx;
-        if (isSelected) {
-          item.inner.scale.set(1.45, 1.45, 1.45);
-          item.outerMat.color.setHex(0xffd700);
-          item.outerMat.opacity = 0.95;
+        if (idx === 0) {
+          // Central core
+          if (isSelected) {
+            item.outerMat.color.setHex(0xffffff);
+            item.outerMat.emissiveIntensity = 0.8;
+          } else {
+            item.outerMat.color.setHex(0xf59e0b);
+            item.outerMat.emissiveIntensity = 0.4;
+          }
         } else {
-          item.inner.scale.set(1.0, 1.0, 1.0);
-          item.outerMat.color.setHex(0x00e5ff);
-          item.outerMat.opacity = 0.6;
+          // Satellites
+          if (isSelected) {
+            item.innerMesh.scale.set(1.5, 1.5, 1.5);
+            item.outerMat.color.setHex(0xffd700);
+            item.outerMat.opacity = 1.0;
+            (item.laserLine.material as THREE.LineBasicMaterial).opacity = 0.9;
+            (item.laserLine.material as THREE.LineBasicMaterial).color.setHex(0xffd700);
+          } else {
+            item.innerMesh.scale.set(1.0, 1.0, 1.0);
+            item.outerMat.color.setHex(item.colorHex);
+            item.outerMat.opacity = 0.75;
+            (item.laserLine.material as THREE.LineBasicMaterial).opacity = 0.35;
+            (item.laserLine.material as THREE.LineBasicMaterial).color.setHex(item.colorHex);
+          }
         }
       });
 
@@ -354,7 +461,7 @@ export const ThreeBrainCanvas: React.FC<ThreeBrainCanvasProps> = ({
         mount.removeChild(renderer.domElement);
       }
     };
-  }, [metronomeHz, selectedLobeIdx]);
+  }, [lobes, metronomeHz, selectedLobeIdx]);
 
   return (
     <div
